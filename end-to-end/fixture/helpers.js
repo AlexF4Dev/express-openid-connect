@@ -7,6 +7,7 @@ const { privateJWK } = require('./jwk');
 const request = require('request-promise-native').defaults({ json: true });
 
 const baseUrl = 'http://localhost:3000';
+const apiUrl = 'http://localhost:3002';
 
 const start = (app, port) =>
   new Promise((resolve, reject) => {
@@ -46,32 +47,71 @@ const stubEnv = (
 
 const testMw = () => {
   const router = new express.Router();
-  router.get('/context', (req, res) => {
-    res.json({
-      idToken: req.oidc.idToken,
-      accessToken: req.oidc.accessToken
+  router.get('/context', async (req, res) => {
+    const {
+      query: { dpop },
+    } = req;
+
+    let userInfo = {};
+    let dpopProof;
+
+    let accessToken = req.oidc.accessToken
+      ? {
+          access_token: req.oidc.accessToken.access_token,
+          token_type: req.oidc.accessToken.token_type,
+          expires_in: req.oidc.accessToken.expires_in,
+          isExpired: req.oidc.accessToken.isExpired(),
+        }
+      : {};
+
+    let refreshedAccessToken = {};
+
+    if (dpop) {
+      // test refresh token with dpop
+
+      await req.oidc.accessToken.refresh();
+      // test user info with dpop
+      userInfo = await req.oidc.fetchUserInfo();
+      // get dpop proof to call external API
+      dpopProof = await req.oidc.dpopProof(
+        apiUrl,
+        'GET',
+        req.oidc.accessToken.access_token
+      );
+
+      refreshedAccessToken = req.oidc.accessToken
         ? {
             access_token: req.oidc.accessToken.access_token,
             token_type: req.oidc.accessToken.token_type,
             expires_in: req.oidc.accessToken.expires_in,
             isExpired: req.oidc.accessToken.isExpired(),
           }
-        : {},
+        : {};
+    }
+    res.json({
+      dpop: req.oidc.isDpop(),
+      idToken: req.oidc.idToken,
+      userInfo,
+      dpopProof,
+      accessToken,
+      refreshedAccessToken,
       refreshToken: req.oidc.refreshToken,
       idTokenClaims: req.oidc.idTokenClaims,
       user: req.oidc.user,
       isAuthenticated: req.oidc.isAuthenticated(),
     });
   });
+
   return router;
 };
 
-const checkContext = async (cookies) => {
+const checkContext = async (cookies, dpop) => {
   const jar = request.jar();
   cookies.forEach(({ name, value }) =>
     jar.setCookie(`${name}=${value}`, baseUrl)
   );
-  return request('/context', { jar, baseUrl });
+  if (dpop) return request('/context?dpop=true', { jar, baseUrl });
+  else return request('/context', { jar, baseUrl });
 };
 
 const goto = async (url, page) =>
@@ -119,6 +159,7 @@ const logoutTokenTester = (clientId, sid, sub) => async (req, res) => {
 
 module.exports = {
   baseUrl,
+  apiUrl,
   start,
   runExample,
   runApi,
