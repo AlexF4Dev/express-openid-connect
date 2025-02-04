@@ -12,6 +12,9 @@ const client = {
 };
 
 const config = {
+  issueRefreshToken: async () => {
+    return true;
+  },
   clients: [
     client,
     Object.assign({}, client, {
@@ -52,6 +55,12 @@ const config = {
   },
   features: {
     backchannelLogout: {
+      enabled: true,
+    },
+    dPoP: {
+      enabled: true,
+    },
+    pushedAuthorizationRequests: {
       enabled: true,
     },
   },
